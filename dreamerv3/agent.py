@@ -398,15 +398,13 @@ class Agent(nj.Module):
 
     # Combine
     if self.config.harmony:
-      for key in losses.keys():
-        if key == "reward":
-          losses[key] = self.harmony_s1(losses[key])
-        elif key == "image":
-          losses[key] = self.harmony_s2(losses[key])
-        elif key == "dyn":
-          losses[key] = self.harmony_s3(losses[key])*(self.scales["dyn"]/(self.scales["dyn"]+self.scales["rep"]))
-        elif key == "rep":
-          losses[key] = self.harmony_s3(losses[key], False)*(self.scales["rep"]/(self.scales["dyn"]+self.scales["rep"]))
+      losses = {
+        **losses,
+        "reward": self.harmony_s1(losses["reward"]),
+        "image": self.harmony_s2(losses["image"]),
+        "dyn": self.harmony_s3(losses["dyn"])*(self.scales["dyn"]/(self.scales["dyn"]+self.scales["rep"])),
+        "rep": self.harmony_s3(losses["rep"], False)*(self.scales["rep"]/(self.scales["dyn"]+self.scales["rep"]))
+      }
     else:
       losses = {k: self.identity(v) * self.scales[k] for k, v in losses.items()}
     loss = jnp.stack([v.mean() for k, v in losses.items()]).sum()
