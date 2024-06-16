@@ -787,6 +787,24 @@ class Norm(nj.Module):
     else:
       raise NotImplementedError(self._impl)
 
+class Harmonizer(nj.Module):
+  def __call__(self, loss, regularize=True):
+    harmony_s = self.get('harmony_s', jnp.array, 0.0)
+    if regularize:
+      return loss / (jnp.exp(harmony_s)) + jnp.log(jnp.exp(harmony_s) + 1)
+    else:
+      return loss / (jnp.exp(harmony_s))
+
+  def get_harmony(self):
+    harmony_s = self.get('harmony_s', jnp.array, 0.0)
+    return harmony_s
+
+
+class Identity(nj.Module):
+  def __call__(self, x):
+    identity = self.get('identity', jnp.array, 1.0)
+    return x * identity
+
 
 class Input:
 

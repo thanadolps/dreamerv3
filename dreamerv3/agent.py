@@ -56,6 +56,11 @@ class Agent(nj.Module):
     }[config.dyn.typ](name='dyn')
     self.rew = nets.MLP((), **config.rewhead, name='rew')
     self.con = nets.MLP((), **config.conhead, name='con')
+    self.harmony_s1 = nets.Harmonizer(name='har_s1')
+    self.harmony_s2 = nets.Harmonizer(name='har_s2')
+    self.harmony_s3 = nets.Harmonizer(name='har_s3')
+    # a hack to prevent numerical instability due to unknown reasons on RTX 3090
+    self.identity = nets.Identity(name='identity')
 
     # Actor
     kwargs = {}
@@ -89,6 +94,8 @@ class Agent(nj.Module):
     self.modules = [
         self.enc, self.dyn, self.dec, self.rew, self.con,
         self.actor, self.critic]
+    if self.config.harmony:
+      self.modules += [self.harmony_s1, self.harmony_s2, self.harmony_s3]
     scales = self.config.loss_scales.copy()
     cnn = scales.pop('dec_cnn')
     mlp = scales.pop('dec_mlp')
@@ -390,12 +397,39 @@ class Agent(nj.Module):
     # metrics['activation/deter'] = jnp.abs(replay_outs['deter']).mean()
 
     # Combine
-    losses = {k: v * self.scales[k] for k, v in losses.items()}
+    if self.config.harmony:
+      for key in losses.keys():
+        if key == "reward":
+          losses[key] = self.harmony_s1(losses[key])
+        elif key == "image":
+          losses[key] = self.harmony_s2(losses[key])
+        elif key == "dyn":
+          losses[key] = self.harmony_s3(losses[key])*(self.scales["dyn"]/(self.scales["dyn"]+self.scales["rep"]))
+        elif key == "rep":
+          losses[key] = self.harmony_s3(losses[key], False)*(self.scales["rep"]/(self.scales["dyn"]+self.scales["rep"]))
+    else:
+      losses = {k: self.identity(v) * self.scales[k] for k, v in losses.items()}
     loss = jnp.stack([v.mean() for k, v in losses.items()]).sum()
     newact = {k: data[k][:, -1] for k in self.act_space}
     outs = {'replay_outs': replay_outs, 'prevacts': prevacts, 'embed': embed}
     outs.update({f'{k}_loss': v for k, v in losses.items()})
     carry = (newlat, newact)
+
+    # Harmonious metrics
+    if self.config.harmony:
+      harmony_s1 = self.harmony_s1.get_harmony()
+      harmony_s2 = self.harmony_s2.get_harmony()
+      harmony_s3 = self.harmony_s3.get_harmony()
+      metrics['harmony_s1'] = harmony_s1
+      metrics['harmony_s2'] = harmony_s2
+      metrics['harmony_s3'] = harmony_s3
+      metrics['coeff1'] = 1 / (jnp.exp(harmony_s1))
+      metrics['coeff2'] = 1 / (jnp.exp(harmony_s2))
+      metrics['coeff3'] = 1 / (jnp.exp(harmony_s3))
+      metrics['sigma1'] = jnp.exp(harmony_s1 * 0.5)
+      metrics['sigma2'] = jnp.exp(harmony_s2 * 0.5)
+      metrics['sigma3'] = jnp.exp(harmony_s3 * 0.5)
+
     return loss, (outs, carry, metrics)
 
   def report(self, data, carry):

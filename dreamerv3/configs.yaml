@@ -145,6 +145,9 @@ defaults:
   slowreg: 1.0
   slowtar: False
 
+  # Harmonious Loss
+  harmony: True
+
 size12m: &size12m
   dyn.rssm: {deter: 2048, hidden: 256, classes: 16}
   .*\.depth: 16
